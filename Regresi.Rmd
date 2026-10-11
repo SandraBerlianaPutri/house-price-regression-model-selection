@@ -1,0 +1,325 @@
+---
+title: "Project Variable Selection Pengantar Sains Data"
+author: "Sandra Berliana Putri"
+date: "2024-09-06"
+output: html_document
+---
+
+## Import Data
+
+```{r}
+library (readr)
+path <- "C:\\Users\\ASUS\\Downloads\\Data Cleaning - Rumah 123.csv"
+
+# 1. Baca mentah per baris (aman dari masalah encoding)
+baris <- readLines(path, encoding = "latin1", warn = FALSE)
+
+# 2. Buang tanda kutip yang membungkus satu baris penuh
+baris <- gsub('"', "", baris)
+
+# 3. Deteksi pemisah otomatis dari baris header
+pemisah <- if (grepl(";", baris[1])) ";" else if (grepl("\t", baris[1])) "\t" else ","
+
+# 4. Pecah jadi kolom, nama kolom dipertahankan
+data <- read.table(
+  text = paste(baris, collapse = "\n"),
+  sep = pemisah, header = TRUE, quote = "",
+  check.names = FALSE, strip.white = TRUE,
+  stringsAsFactors = FALSE, fill = TRUE
+)
+
+# 5. Ubah kolom yang isinya angka jadi numerik
+data[] <- lapply(data, type.convert, as.is = TRUE)
+
+library(dplyr)
+data <- data %>% rename(Harga = `Harga (Miliar)`)
+data <- data %>% rename(`Luas Tanah` = `Luas Tanah (m²)`)
+data <- data %>% rename(`Luas Bangunan` = `Luas Bangunan (m²)`)
+data <- data %>% rename(`Cicilan` = `Cicilan (Jutaan per Bulan)`)
+
+str(data)
+head(data)
+```
+
+## Regresi Harga Rumah dengan 6 Peubah Prediktor
+
+### Model Regresi Awal
+
+```{r}
+library(dplyr)
+library(lmtest)
+library(car)
+
+model <- lm(Harga ~ `Kamar Tidur`+`Kamar Mandi`+`Luas Tanah`+`Garasi`+`Luas Bangunan`+`Cicilan`, data = data)
+
+summary(model)
+
+t.test(model$residuals,mu = 0,conf.level=0.95)
+bptest(model)
+ks.test(model$residuals, "pnorm", mean(model$residuals), sd(model$residuals))
+shapiro.test(model$residuals)
+dwtest(model)
+vif(model)
+```
+
+### Penanganan Autokorelasi dengan Transformasi Boxcox
+
+```{r}
+library(MASS)
+
+boxcox_result <- boxcox(model)
+
+lambda_optimal <- boxcox_result$x[which.max(boxcox_result$y)]
+
+if (lambda_optimal != 0) {
+    data$Harga_transformed <- (data$Harga^lambda_optimal - 1) / lambda_optimal
+} else {
+    data$Harga_transformed <- log(data$Harga)
+}
+
+model2 <- lm(Harga_transformed ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah`+`Luas Bangunan` + `Garasi` + `Jenis Bangunan` + `Cicilan`, data = data)
+
+summary(model2)
+
+t.test(model2$residuals,mu = 0,conf.level=0.95)
+bptest(model2)
+ks.test(model2$residuals, "pnorm", mean(model2$residuals), sd(model2$residuals))
+shapiro.test(model2$residuals)
+dwtest(model2)
+vif(model2)
+```
+## Log
+```{r}
+model3 <- lm(log(Harga) ~ `Kamar Tidur` + `Kamar Mandi`+`Luas Bangunan` + `Luas Tanah` + `Garasi` + `Cicilan`, data = data)
+
+summary(model3)
+
+t.test(model3$residuals,mu = 0,conf.level=0.95)
+dwtest(model3)
+bptest(model3)
+ks.test(model3$residuals, "pnorm", mean(model3$residuals), sd(model3$residuals))
+shapiro.test(model3$residuals)
+vif(model3)
+```
+
+## Sqrt
+```{r}
+model4 <- lm(sqrt(Harga) ~ `Kamar Tidur` + `Kamar Mandi`+`Luas Bangunan` + `Luas Tanah` + `Garasi` + `Cicilan`, data = data)
+
+summary(model4)
+
+t.test(model4$residuals,mu = 0,conf.level=0.95)
+dwtest(model4)
+bptest(model4)
+ks.test(model4$residuals, "pnorm", mean(model4$residuals), sd(model4$residuals))
+shapiro.test(model4$residuals)
+vif(model4)
+```
+## Reciprocal
+```{r}
+model5 <- lm(1/Harga ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah` + `Luas Bangunan`+`Garasi` + `Cicilan`, data = data)
+
+summary(model5)
+
+t.test(model5$residuals,mu = 0,conf.level=0.95)
+dwtest(model5)
+bptest(model5)
+ks.test(model5$residuals, "pnorm", mean(model5$residuals), sd(model5$residuals))
+shapiro.test(model5$residuals)
+vif(model5)
+```
+
+## Kuadrat
+```{r}
+model6 <- lm(I(Harga^2) ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah` + `Garasi` + `Luas Bangunan` + `Cicilan`, data = data)
+
+summary(model6)
+
+t.test(model6$residuals,mu = 0,conf.level=0.95)
+dwtest(model6)
+bptest(model6)
+ks.test(model6$residuals, "pnorm", mean(model6$residuals), sd(model6$residuals))
+shapiro.test(model6$residuals)
+vif(model6)
+
+# Ringkasan model untuk mendapatkan Adjusted R-squared
+summary_model6 <- summary(model6)
+
+# Menampilkan Adjusted R-squared
+adjusted_r_squared <- summary_model6$adj.r.squared
+cat("Adjusted R-squared: ", adjusted_r_squared, "\n")
+
+# Menghitung Residual Standard Error (RSE)
+n <- length(model6$residuals)  # Jumlah observasi
+p <- length(coef(model6))  # Jumlah parameter (koefisien)
+rss <- sum(model6$residuals^2)  # Residual sum of squares
+
+rse <- sqrt(rss / (n - p))  # Residual Standard Error
+cat("Residual Standard Error (RSE): ", rse, "\n")
+
+```
+
+## Penanganan dengan Membuang Outlier
+
+```{r}
+influence <- influence.measures(model)
+summary(influence)
+
+outliers <- which(influence$infmat[, "hat"] > (2 * mean(influence$infmat[, "hat"])))
+data_clean <- data[-outliers, ]
+
+model7 <- lm(Harga ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah`+`Luas Bangunan` + `Garasi` + `Cicilan`, data = data_clean)
+
+summary(model7)
+
+t.test(model7$residuals,mu = 0,conf.level=0.95)
+dwtest(model7)
+bptest(model7)
+ks.test(model7$residuals, "pnorm", mean(model7$residuals), sd(model7$residuals))
+shapiro.test(model7$residuals)
+```
+
+## Kuadrat Non Outlier
+```{r}
+model8 <- lm(1/Harga ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah` + `Garasi` + `Luas Bangunan` + `Cicilan`, data = data_clean)
+
+summary(model8)
+
+t.test(model8$residuals,mu = 0,conf.level=0.95)
+dwtest(model8)
+bptest(model8)
+ks.test(model8$residuals, "pnorm", mean(model8$residuals), sd(model8$residuals))
+shapiro.test(model8$residuals)
+vif(model8)
+```
+
+## Regresi Lasso
+
+```{r}
+# Install glmnet if necessary
+library(glmnet)
+
+# Misalkan data sudah ada dalam variabel x (prediktor) dan y (respons)
+x <- model.matrix(I(Harga^2) ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah`+`Luas Bangunan` + Garasi + Cicilan, data=data)[,-1]
+y <- data$Harga
+
+# Lakukan regresi Lasso
+lasso_model <- glmnet(x, y, alpha = 1)
+
+# Untuk cross-validation dan memilih nilai lambda yang optimal
+cv_lasso <- cv.glmnet(x, y, alpha = 1)
+best_lambda <- cv_lasso$lambda.min
+
+# Lihat koefisien model pada lambda terbaik
+coef(lasso_model, s = best_lambda)
+
+# Variabel yang dipilih oleh Lasso (koefisien tidak nol)
+selected_vars <- rownames(coef(lasso_model, s = best_lambda))[which(coef(lasso_model, s = best_lambda) != 0)]
+
+# Membuat model linier berdasarkan variabel yang dipilih oleh Lasso
+formula_lasso <- as.formula(paste("Harga ~", paste(selected_vars[-1], collapse = " + ")))  # -1 untuk menghapus intercept
+ols_model <- lm(formula_lasso, data = data_clean)
+
+# Lihat ringkasan model OLS
+summary(ols_model)
+
+t.test(ols_model$residuals,mu = 0,conf.level=0.95)
+dwtest(ols_model)
+bptest(ols_model)
+ks.test(ols_model$residuals, "pnorm", mean(ols_model$residuals), sd(ols_model$residuals))
+shapiro.test(ols_model$residuals)
+```
+
+## Regresi robust
+
+```{r}
+library(robustbase)
+
+# Misalkan data sudah ada dalam variabel x (prediktor) dan y (respons)
+x <- model.matrix(I(Harga^2) ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah` +`Luas Bangunan`+ Garasi + Cicilan, data=data)[,-1]
+y <- data$Harga
+
+# Membuat model regresi robust
+robust_model <- lmrob(Harga ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah` +`Luas Bangunan`+ Garasi + Cicilan, data=data_clean)
+
+# Ringkasan hasil model robust
+summary(robust_model)
+
+dwtest(robust_model)
+bptest(robust_model)
+ks.test(robust_model$residuals, "pnorm", mean(robust_model$residuals), sd(robust_model$residuals))
+shapiro.test(robust_model$residuals)
+```
+
+## Regresi Quantile
+
+```{r}
+library(quantreg)
+
+quantile_model <- rq(I(Harga^2) ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah`+`Luas Bangunan` + Garasi + Cicilan, data = data, tau = 0.5)  # Median regression
+summary(quantile_model)
+
+dwtest(quantile_model)
+bptest(quantile_model)
+ks.test(quantile_model$residuals, "pnorm", mean(quantile_model$residuals), sd(quantile_model$residuals))
+shapiro.test(quantile_model$residuals)
+
+# Pseudo R-squared calculation (as no adjusted R-squared is provided by rq)
+pseudo_r_squared <- 1 - (quantile_model$rho / sum((data$Harga^2 - mean(data$Harga^2))^2))
+
+# Residual Standard Error (RSE) approximation
+n <- length(quantile_model$residuals)
+p <- length(quantile_model$coefficients)
+residuals <- quantile_model$residuals
+rse <- sqrt(sum(residuals^2) / (n - p))
+
+# Display results
+cat("Pseudo R-squared: ", pseudo_r_squared, "\n")
+cat("Residual Standard Error (RSE): ", rse, "\n")
+
+```
+
+## Regresi
+
+```{r}
+library(nlme)
+library(lmtest)
+library(lme4)
+
+# Misalkan data sudah ada dalam data_clean
+# Membuat model GLS dengan heteroskedastisitas dan autokorelasi
+gls_model_ar1 <- glm(I(Harga^2) ~ `Kamar Tidur` + `Kamar Mandi` + `Luas Tanah`+`Luas Bangunan` + Garasi + Cicilan, data = data)
+
+# Ringkasan model GLS
+summary(gls_model_ar1)
+
+# Uji Durbin-Watson
+dwtest(gls_model_ar1)
+
+# Uji Kolmogorov-Smirnov untuk normalitas residual
+residuals_gls <- residuals(gls_model_ar1)
+ks.test(residuals_gls, "pnorm", mean=mean(residuals_gls), sd=sd(residuals_gls))
+shapiro.test(residuals_gls)
+
+# Uji Breusch-Pagan untuk heteroskedastisitas
+bptest(gls_model_ar1)
+
+# Menghitung Pseudo R-squared (McFadden's R-squared)
+null_model <- glm(I(Harga^2) ~ 1, data = data)  # Model null tanpa prediktor
+ll_full <- logLik(gls_model_ar1)  # Log likelihood dari model penuh
+ll_null <- logLik(null_model)     # Log likelihood dari model null
+
+pseudo_r_squared <- 1 - (as.numeric(ll_full) / as.numeric(ll_null))
+
+# Menghitung Residual Standard Error (RSE)
+n <- length(residuals_gls)
+p <- length(coef(gls_model_ar1))
+rss <- sum(residuals_gls^2)  # Residual sum of squares
+
+rse <- sqrt(rss / (n - p))
+
+# Menampilkan hasil
+cat("Pseudo R-squared (McFadden): ", pseudo_r_squared, "\n")
+cat("Residual Standard Error (RSE): ", rse, "\n")
+
+```
